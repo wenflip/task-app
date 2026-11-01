@@ -469,6 +469,68 @@ function deleteList(listId) {
   save(); render();
 }
 
+
+function editTask(taskId) {
+  const loc = findTask(taskId);
+  if (!loc) return;
+  const t = loc.task;
+  showModal('Edit Task', `
+    <input id="mTitle" value="${escapeHtml(t.title)}" autofocus>
+    <input id="mDue" type="date" value="${t.dueDate || ''}">
+    <textarea id="mContent" rows="3">${escapeHtml(t.content || '')}</textarea>
+  `, () => {
+    const title = document.getElementById('mTitle').value.trim();
+    if (!title) return false;
+    t.title = title;
+    t.dueDate = document.getElementById('mDue').value || null;
+    t.content = document.getElementById('mContent').value.trim();
+    save(); render(); return true;
+  });
+}
+
+function nestTask(taskId) {
+  const loc = findTask(taskId);
+  if (!loc) return;
+  // Collect possible parents: other tasks in the same list (not self, not descendants)
+  const candidates = [];
+  function collect(tasks, depth) {
+    for (const t of tasks) {
+      if (t.id !== taskId) {
+        candidates.push({ id: t.id, title: t.title, depth });
+        if (t.subtasks) collect(t.subtasks, depth + 1);
+      }
+    }
+  }
+  collect(loc.list.tasks, 0);
+  if (!candidates.length) { alert('No other tasks in this list to nest under'); return; }
+  const options = candidates.map(c => `<option value="${c.id}">${'—'.repeat(c.depth)} ${escapeHtml(c.title)}</option>`).join('');
+  showModal('Nest under', `<select id="mParent">${options}</select>`, () => {
+    const parentId = document.getElementById('mParent').value;
+    const parentLoc = findTask(parentId);
+    if (!parentLoc) return false;
+    // Remove from current location
+    const idx = loc.parentArray.findIndex(t => t.id === taskId);
+    const [task] = loc.parentArray.splice(idx, 1);
+    // Add as subtask of parent
+    if (!parentLoc.task.subtasks) parentLoc.task.subtasks = [];
+    parentLoc.task.subtasks.push(task);
+    save(); render(); return true;
+  });
+}
+
+function unnestTask(taskId) {
+  const loc = findTask(taskId);
+  if (!loc) return;
+  // If already at list root, nothing to do
+  if (loc.parentArray === loc.list.tasks) { alert('Already at top level'); return; }
+  // Remove from current parent
+  const idx = loc.parentArray.findIndex(t => t.id === taskId);
+  const [task] = loc.parentArray.splice(idx, 1);
+  // Add to the list root
+  loc.list.tasks.push(task);
+  save(); render();
+}
+
 function renderFolders() {
   const el = document.getElementById('folders');
   if (!state.folders.length) {
@@ -514,6 +576,9 @@ function renderTask(task, depth = 0) {
         ${subHtml}
       </div>
       <div class="task-actions">
+        <button class="small" data-edit="${task.id}">Edit</button>
+        <button class="small" data-nest="${task.id}">Nest</button>
+        <button class="small" data-unnest="${task.id}">Unnest</button>
         <button class="small" data-move="${task.id}">Move</button>
         <button class="small danger" data-del="${task.id}">Del</button>
       </div>
@@ -572,6 +637,15 @@ function renderMain() {
   });
   content.querySelectorAll('[data-add]').forEach(b => {
     b.onclick = (e) => { e.stopPropagation(); createTask(b.dataset.add); };
+  });
+  content.querySelectorAll('[data-edit]').forEach(b => {
+    b.onclick = (e) => { e.stopPropagation(); editTask(b.dataset.edit); };
+  });
+  content.querySelectorAll('[data-nest]').forEach(b => {
+    b.onclick = (e) => { e.stopPropagation(); nestTask(b.dataset.nest); };
+  });
+  content.querySelectorAll('[data-unnest]').forEach(b => {
+    b.onclick = (e) => { e.stopPropagation(); unnestTask(b.dataset.unnest); };
   });
   content.querySelectorAll('[data-move]').forEach(b => {
     b.onclick = (e) => { e.stopPropagation(); moveTask(b.dataset.move); };
